@@ -1,57 +1,96 @@
+import os
 import time
-from datetime import datetime
 import pandas as pd
+from datetime import datetime, timezone
+from pathlib import Path
+
 from nba_api.stats.endpoints import leaguedashplayerstats
-from pytz import timezone
+from nba_api.stats.library.http import NBAStatsHTTP
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-MT = timezone("America/Denver")
+# --- Output dir (relative to repo root) ---
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-def current_season_str(dt=None):
-    """Return NBA season label like '2025-26' based on date (MT)."""
-    if dt is None:
-        dt = datetime.now(MT)
-    y, m = dt.year, dt.month
-    start_year = y if m >= 10 else y - 1  # season starts Oct
-    return f"{start_year}-{str(start_year + 1)[-2:]}"
+def _prepare_session():
+    """Strengthen the NBA API HTTP session with headers + retries."""
+    http = NBAStatsHTTP()
+    s = http.get_session()
 
-def fetch_player_avgs(season=None, season_type="Regular Season", retries=5, pause=3):
-    """Fetch season-to-date per-game averages for all players, with simple retries."""
-    if season is None:
-        season = current_season_str()
-    for attempt in range(1, retries + 1):
-        try:
-            res = leaguedashplayerstats.LeagueDashPlayerStats(
-                season=season,
-                season_type_all_star=season_type,
-                per_mode_detailed="PerGame",
-                timeout=60
-            )
-            df = res.get_data_frames()[0]
-            df.insert(0, "date_updated_mt", datetime.now(MT).strftime("%Y-%m-%d %H:%M:%S"))
-            df.insert(1, "season", season)
-            return df
-        except Exception as e:
-            if attempt == retries:
-                raise
-            time.sleep(pause * attempt)  
+    # Pretend to be a browser; stats.nba.com is picky
+    s.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/129.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.nba.com/stats",
+        "Origin": "https://www.nba.com",
+        "Accept": "application/json, text/plain, */*",
+        "Connection": "keep-alive",
+    })
 
-def save_csv(df, season):
-    # One season file + a rolling "latest" file
-    dated = datetime.now(MT).strftime("%Y%m%d")
-    df.to_csv(f"nba_player_avgs_{season}_{dated}.csv", index=False)
-    df.to_csv("nba_player_avgs_latest.csv", index=False)
+    # Retry on rate limits / transient network errors
+    retry = Retry(
+        total=5,
+        read=5,
+        connect=5,
+        backoff_factor=2,                 # 0, 2, 4, 8, 16s ...
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return http
+
+def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
+    """
+    Pull per-game (season-to-date) averages for every player.
+    season format examples: '2024-25', '2023-24'
+    """
+    _ = _prepare_session()
+    # timeout helps in CI; PerGame returns per-game averages
+    res = leaguedashplayerstats.LeagueDashPlayerStats(
+        season=season,
+        season_type_all_star=season_type,
+        per_mode_detailed="PerGame",
+        timeout=120,  # seconds
+    )
+    df = res.get_data_frames()[0]
+
+    # Common Columns
+    cols = [
+        "PLAYER_ID","PLAYER_NAME","TEAM_ID","TEAM_ABBREVIATION","GP",
+        "MIN","PTS","REB","AST","STL","BLK","TOV","FG_PCT","FG3_PCT","FT_PCT","PLUS_MINUS"
+    ]
+    df = df[[c for c in cols if c in df.columns]].copy()
+    return df
 
 if __name__ == "__main__":
-    season = current_season_str()
-    df = fetch_player_avgs(season=season, season_type="Regular Season")
-    # Tidy subset of common stats
-    cols = [
-        "PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION", "AGE", "GP", "W", "L",
-        "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "PF",
-        "FGM", "FGA", "FG_PCT", "FG3M", "FG3A", "FG3_PCT", "FTM", "FTA", "FT_PCT",
-        "OREB", "DREB", "PLUS_MINUS", "PIE"
-    ]
-    keep = [c for c in cols if c in df.columns]
-    df = df[["date_updated_mt", "season"] + keep]
-    save_csv(df, season)
-    print(f"Saved {len(df)} player rows for season {season}.")
+    # Season auto-detect (simple): if before Aug -> same season label, else roll to next
+    today = datetime.now(timezone.utc)
+    year = today.year
+    # NBA season rolls around fall; adjust if you want to be more exact
+    season_label = f"{year-1}-{str(year)[-2:]}" if today.month < 8 else f"{year}-{str(year+1)[-2:]}"
+
+    # Be nice to the API
+    try:
+        df = fetch_player_avgs(season=season_label, season_type="Regular Season")
+    except Exception as e:
+        # One more short backoff try in case of network noise
+        time.sleep(5)
+        df = fetch_player_avgs(season=season_label, season_type="Regular Season")
+
+    # Save outputs
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    dated_path = DATA_DIR / f"nba_player_avgs_{stamp}.csv"
+    latest_path = DATA_DIR / "nba_player_avgs_latest.csv"
+
+    df.to_csv(dated_path, index=False)
+    df.to_csv(latest_path, index=False)
+
+    print(f"Wrote {dated_path}")
+    print(f"Wrote {latest_path}")

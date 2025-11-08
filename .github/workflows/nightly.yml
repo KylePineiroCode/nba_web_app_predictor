@@ -1,8 +1,12 @@
 name: nightly-nba-pull
+
 on:
   schedule:
     - cron: "30 10 * * *"   # 03:30 AM Mountain Time = 10:30 UTC
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run:
@@ -14,14 +18,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install nba_api pandas pytz
+      - run: pip install nba_api pandas pytz urllib3 requests
 
-      - run: python nba_pull.py
+      - name: Run pull
+        run: python nba_pull.py
 
       - name: Commit and push dataset
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name "github-actions"
-          git add data/ 
+          git add data/
           git commit -m "Automated daily NBA data update" || echo "No changes to commit"
           git push
