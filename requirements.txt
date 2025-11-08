@@ -1,0 +1,4 @@
+pandas == 2.3.3
+numpy == 2.3.4
+pytz == 2025.2
+nba_api == 1.10.2
