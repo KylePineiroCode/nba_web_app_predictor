@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: "3.11"
           
-      - run: pip install nba_api pandas pytz urllib3 requests
+      - run: pip install nba_api pandas pytz urllib3 requests pathlib
       
       - name: Run pull
         run: python nba_pull.py
