@@ -18,7 +18,7 @@ def _prepare_session():
     http = NBAStatsHTTP()
     s = http.get_session()
 
-    # Pretend to be a browser
+    # Pretend to be a browser; stats.nba.com is picky
     s.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -31,12 +31,12 @@ def _prepare_session():
         "Connection": "keep-alive",
     })
 
-    # Retry on rate limits / transient network errors
+    # More aggressive retry settings
     retry = Retry(
-        total=5,
-        read=5,
-        connect=5,
-        backoff_factor=2,                
+        total=8,  # Increased from 5
+        read=8,
+        connect=8,
+        backoff_factor=3,  # Increased from 2              
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
         raise_on_status=False,
@@ -57,7 +57,7 @@ def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.Da
         season=season,
         season_type_all_star=season_type,
         per_mode_detailed="PerGame",
-        timeout=120,  # seconds
+        timeout=180,
     )
     df = res.get_data_frames()[0]
 
@@ -70,24 +70,32 @@ def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.Da
     return df
 
 if __name__ == "__main__":
-    
+    # Current season: 2025-26
     season_label = "2025-26"
     
     print(f"Fetching data for season: {season_label}")
+    print(f"Current time (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
     
-    time.sleep(3)  # Initial delay
+    time.sleep(8)
     
-    try:
-        df = fetch_player_avgs(season=season_label, season_type="Regular Season")
-    except Exception as e:
-        print(f"First attempt failed: {e}")
-        
-        time.sleep(10)
+    max_attempts = 4 
+    for attempt in range(1, max_attempts + 1):
         try:
+            print(f"Attempt {attempt}/{max_attempts}...")
             df = fetch_player_avgs(season=season_label, season_type="Regular Season")
-        except Exception as e2:
-            print(f"Second attempt failed: {e2}")
-            raise  
+            print(f"Successfully fetched data!")
+            break
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Attempt {attempt} failed: {error_msg[:200]}...")
+            if attempt < max_attempts:
+                # Progressive backoff: 20s, 40s, 60s
+                wait_time = 20 * attempt
+                print(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                print(f"All {max_attempts} attempts failed after {sum(20*i for i in range(1, max_attempts))} seconds of retries")
+                raise
     
     # Save outputs
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")

@@ -2,8 +2,11 @@ name: nightly-nba-pull
 
 on:
   schedule:
-    - cron: "30 10 * * *"   # 03:30 AM Mountain Time = 10:30 UTC
+    - cron: "0 14 * * *"
   workflow_dispatch:
+  push:
+    branches:
+      - script/workflow
 
 permissions:
   contents: write
@@ -13,37 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: script/workflow
+          
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install nba_api pandas pytz urllib3 requests
-
+          
+      - run: pip install nba_api pandas pytz urllib3 requests
+      
       - name: Run pull
-        run: |
-          python nba_pull.py
-        continue-on-error: false
-
-      - name: Check if data directory exists
-        run: |
-          if [ -d "data" ]; then
-            echo "Data directory exists"
-            ls -la data/
-          else
-            echo "Data directory not found!"
-            exit 1
-          fi
-
+        run: python nba_pull.py
+        
       - name: Commit and push dataset
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name "github-actions"
           git add data/
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Automated daily NBA data update [$(date +'%Y-%m-%d %H:%M:%S UTC')]"
-            git push
-          fi
+          git commit -m "Automated daily NBA data update" || echo "No changes to commit"
+          git push origin script  # Push to the 'script' branch
