@@ -18,7 +18,7 @@ def _prepare_session():
     http = NBAStatsHTTP()
     s = http.get_session()
 
-    # Pretend to be a browser; stats.nba.com is picky
+    # Pretend to be a browser
     s.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -36,7 +36,7 @@ def _prepare_session():
         total=5,
         read=5,
         connect=5,
-        backoff_factor=2,                 # 0, 2, 4, 8, 16s ...
+        backoff_factor=2,                
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
         raise_on_status=False,
@@ -52,7 +52,7 @@ def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.Da
     season format examples: '2024-25', '2023-24'
     """
     _ = _prepare_session()
-    # timeout helps in CI; PerGame returns per-game averages
+    
     res = leaguedashplayerstats.LeagueDashPlayerStats(
         season=season,
         season_type_all_star=season_type,
@@ -70,27 +70,33 @@ def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.Da
     return df
 
 if __name__ == "__main__":
-    # Season auto-detect (simple): if before Aug -> same season label, else roll to next
-    today = datetime.now(timezone.utc)
-    year = today.year
-    # NBA season rolls around fall; adjust if you want to be more exact
-    season_label = f"{year-1}-{str(year)[-2:]}" if today.month < 8 else f"{year}-{str(year+1)[-2:]}"
-
-    # Be nice to the API
+    
+    season_label = "2025-26"
+    
+    print(f"Fetching data for season: {season_label}")
+    
+    time.sleep(3)  # Initial delay
+    
     try:
         df = fetch_player_avgs(season=season_label, season_type="Regular Season")
     except Exception as e:
-        # One more short backoff try in case of network noise
-        time.sleep(5)
-        df = fetch_player_avgs(season=season_label, season_type="Regular Season")
-
+        print(f"First attempt failed: {e}")
+        
+        time.sleep(10)
+        try:
+            df = fetch_player_avgs(season=season_label, season_type="Regular Season")
+        except Exception as e2:
+            print(f"Second attempt failed: {e2}")
+            raise  
+    
     # Save outputs
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     dated_path = DATA_DIR / f"nba_player_avgs_{stamp}.csv"
     latest_path = DATA_DIR / "nba_player_avgs_latest.csv"
-
+    
     df.to_csv(dated_path, index=False)
     df.to_csv(latest_path, index=False)
-
+    
     print(f"Wrote {dated_path}")
     print(f"Wrote {latest_path}")
+    print(f"Fetched data for {len(df)} players in season {season_label}")
