@@ -1,29 +1,26 @@
 name: nightly-nba-pull
-
 on:
   schedule:
     - cron: "0 14 * * *"
   workflow_dispatch:
   push:
     branches:
-      - script/workflow
-
+      - workflow
 permissions:
   contents: write
-
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: script/workflow
+          ref: workflow
           
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           
-      - run: pip install nba_api pandas pytz urllib3 requests pathlib
+      - run: pip install nba_api pandas pytz urllib3 requests
       
       - name: Run pull
         run: python nba_pull.py
@@ -34,4 +31,4 @@ jobs:
           git config --global user.name "github-actions"
           git add data/
           git commit -m "Automated daily NBA data update" || echo "No changes to commit"
-          git push origin script/workflow
+          git push origin workflow
