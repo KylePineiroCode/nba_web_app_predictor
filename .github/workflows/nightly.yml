@@ -34,4 +34,4 @@ jobs:
           git config --global user.name "github-actions"
           git add data/
           git commit -m "Automated daily NBA data update" || echo "No changes to commit"
-          git push origin script  # Push to the 'script' branch
+          git push origin script/workflow
