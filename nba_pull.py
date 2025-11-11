@@ -3,7 +3,6 @@ import time
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
-
 from nba_api.stats.endpoints import leaguedashplayerstats
 from nba_api.stats.library.http import NBAStatsHTTP
 from requests.adapters import HTTPAdapter
@@ -17,7 +16,6 @@ def _prepare_session():
     """Strengthen the NBA API HTTP session with headers + retries."""
     http = NBAStatsHTTP()
     s = http.get_session()
-
     # Pretend to be a browser; stats.nba.com is picky
     s.headers.update({
         "User-Agent": (
@@ -30,7 +28,6 @@ def _prepare_session():
         "Accept": "application/json, text/plain, */*",
         "Connection": "keep-alive",
     })
-
     # More aggressive retry settings
     retry = Retry(
         total=8,  # Increased from 5
@@ -60,7 +57,6 @@ def fetch_player_avgs(season: str, season_type: str = "Regular Season") -> pd.Da
         timeout=180,
     )
     df = res.get_data_frames()[0]
-
     # Common Columns
     cols = [
         "PLAYER_ID","PLAYER_NAME","TEAM_ID","TEAM_ABBREVIATION","GP",
@@ -102,9 +98,10 @@ if __name__ == "__main__":
     dated_path = DATA_DIR / f"nba_player_avgs_{stamp}.csv"
     latest_path = DATA_DIR / "nba_player_avgs_latest.csv"
     
+    # Save both files
     df.to_csv(dated_path, index=False)
     df.to_csv(latest_path, index=False)
     
-    print(f"Wrote {dated_path}")
-    print(f"Wrote {latest_path}")
+    print(f"Wrote {dated_path} (local only - NOT pushed to Git)")
+    print(f"Wrote {latest_path} (will be pushed to Git)")
     print(f"Fetched data for {len(df)} players in season {season_label}")
